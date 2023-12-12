@@ -18,10 +18,10 @@ using namespace Microsoft::WRL;
 
 #include "log.h"
 #include "types.h"
-#include "assets.h"
+//#include "assets.h"
 
 #include "log.cpp"
-#include "assets.cpp"
+//#include "assets.cpp"
 
 struct dx_sample {
 	// viewport dimensions
@@ -128,8 +128,8 @@ struct dx_hello_triangle {
 
 struct Vertex
 {
-    DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT4 color;
+    v3 position;
+    v4 color;
 };
 
 void init_hello_triangle(dx_hello_triangle *triangle, UINT width, UINT height) {
@@ -490,10 +490,7 @@ void dx_on_destroy(dx_hello_triangle *input) {
 
 dx_hello_triangle global_triangle = {};
 
-LRESULT CALLBACK main_window_callback(HWND window_handle,
-									  UINT message,
-									  WPARAM wparam,
-									  LPARAM lparam) {
+LRESULT CALLBACK main_window_callback(HWND window_handle, UINT message, WPARAM wparam, LPARAM lparam) {
 	LRESULT result = 0;
 
 	switch(message) {
@@ -526,10 +523,7 @@ struct platform_window_dimension {
 	s32 height;
 };
 
-int CALLBACK WinMain(HINSTANCE hInstance,
-					 HINSTANCE hPrevInstance,
-					 LPSTR lpCmdLine,
-					 int nShowCmd) {
+int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
 	WNDCLASS window_class = {};
 	window_class.lpfnWndProc = main_window_callback;
 	window_class.hInstance = hInstance;
