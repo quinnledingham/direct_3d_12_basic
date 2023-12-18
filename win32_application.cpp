@@ -15,6 +15,8 @@ using Microsoft::WRL::ComPtr;
 
 #endif // WINDOWS
 
+#include <spirv_cross_c.h>
+
 #include "log.h"
 #include "types.h"
 #include "win32_application.h"
