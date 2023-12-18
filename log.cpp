@@ -38,6 +38,20 @@ void output_ch(u32 output_type, const char ch) {
     OutputDebugStringA((LPCSTR)output_buffer);
 }
 
+inline const char *
+float_to_char_array(f32 f) {
+    u32 size = 64;
+    char *buffer = (char*)malloc(size);
+    memset(buffer, 0, size);
+    u32 ret = snprintf(buffer, size, "%f", f);
+    if (ret < 0) {
+        error(0, "ftos(): failed");
+        return 0;
+    }
+    //if (ret >= size) warning(0, "ftos(): result was truncated");
+    return buffer;
+}
+
 void output_list(u32 output_type, const char *msg, va_list valist) {
     const char *msg_ptr = msg;
     while (*msg_ptr != 0) {
@@ -48,6 +62,12 @@ void output_list(u32 output_type, const char *msg, va_list valist) {
                     const char *string = va_arg(valist, const char*);
                     output_string(output_type, string);
                 } break;
+                case 'f': {
+                    double f = va_arg(valist, double);
+                    const char *f_string = float_to_char_array((float)f);
+                    output_string(output_type, f_string);
+                    free((void*)f_string);
+                };
             }
         } else {
             output_ch(output_type, *msg_ptr);

@@ -17,17 +17,9 @@ using Microsoft::WRL::ComPtr;
 
 #include "log.h"
 #include "types.h"
+#include "win32_application.h"
 
 #include "log.cpp"
-
-struct dx_sample {
-	// viewport dimensions
-	UINT m_width;
-	UINT m_height;
-	float m_aspect_ratio;
-
-	bool m_useWarpDevice; // Adapter info
-};
 
 void init_dx_sample(dx_sample *sample, UINT width, UINT height) {
 	sample->m_width = width;
@@ -35,10 +27,10 @@ void init_dx_sample(dx_sample *sample, UINT width, UINT height) {
 	sample->m_aspect_ratio = (float)width / (float)height;
 }
 
-void dx_get_hardware_adapter(_In_ IDXGIFactory1* p_factory, _Outptr_result_maybenull_ IDXGIAdapter1** pp_adapter, bool request_high_performance_adapter = false);
+void dx12_get_hardware_adapter(_In_ IDXGIFactory1* p_factory, _Outptr_result_maybenull_ IDXGIAdapter1** pp_adapter, bool request_high_performance_adapter = false);
 
 _Use_decl_annotations_
-void dx_get_hardware_adapter(IDXGIFactory1* p_factory, IDXGIAdapter1** pp_adapter, bool request_high_performance_adapter) {
+void dx12_get_hardware_adapter(IDXGIFactory1* p_factory, IDXGIAdapter1** pp_adapter, bool request_high_performance_adapter) {
     *pp_adapter = nullptr;
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
 
@@ -89,52 +81,6 @@ void dx_get_hardware_adapter(IDXGIFactory1* p_factory, IDXGIAdapter1** pp_adapte
     *pp_adapter = adapter.Detach();
 }
 
-struct dx_hello_triangle {
-	bool initialized;
-
-	dx_sample sample;
-	
-	static const UINT frame_count = 2;
-	
-	// Pipeline objects
-	CD3DX12_VIEWPORT m_viewport;
-    CD3DX12_RECT m_scissor_rect;
-	ComPtr<IDXGISwapChain3> m_swap_chain;
-	ComPtr<ID3D12Device> m_device;
-	ComPtr<ID3D12Resource> m_render_targets[frame_count];
-	ComPtr<ID3D12CommandAllocator> m_command_allocator;
-	ComPtr<ID3D12CommandQueue> m_command_queue;
-	ComPtr<ID3D12RootSignature> m_root_signature;
-	ComPtr<ID3D12DescriptorHeap> m_rtv_heap;
-	ComPtr<ID3D12PipelineState> m_pipeline_state;
-	ComPtr<ID3D12GraphicsCommandList> m_command_list;
-	UINT m_rtv_descriptor_size;
-
-	// App resources.
-    ComPtr<ID3D12Resource> m_vertex_buffer;
-    D3D12_VERTEX_BUFFER_VIEW m_vertex_buffer_view;
-
-	// Synchronization objects
-	UINT m_frame_index;
-    HANDLE m_fence_event;
-    ComPtr<ID3D12Fence> m_fence;
-    UINT64 m_fence_value;
-};
-
-struct Vertex
-{
-    v3 position;
-    v4 color;
-};
-
-void init_hello_triangle(dx_hello_triangle *triangle, UINT width, UINT height) {
-	init_dx_sample(&triangle->sample, width, height);
-	triangle->m_frame_index = 0;
-	triangle->m_rtv_descriptor_size = 0;
-	triangle->m_viewport = CD3DX12_VIEWPORT(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
-	triangle->m_scissor_rect = CD3DX12_RECT(0, 0, static_cast<LONG>(width), static_cast<LONG>(height));
-}
-
 void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
 	// Enable the D3D12 debug layer
 	UINT dxgiFactoryFlags = 0;
@@ -159,7 +105,7 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
 
 	// Create the device
 	{
-	    if (input->sample.m_useWarpDevice) {
+	    if (input->sample.m_use_warp_device) {
 	    	ComPtr<IDXGIAdapter> warp_adapter;
 	    	if (FAILED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp_adapter)))) {
 	    		output("load_pipeline(): EnumWarpAdapter() failed");
@@ -172,7 +118,7 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
 
 	    } else {
 	    	ComPtr<IDXGIAdapter1> hardware_adapter;
-	    	dx_get_hardware_adapter(factory.Get(), &hardware_adapter);
+	    	dx12_get_hardware_adapter(factory.Get(), &hardware_adapter);
 
 	    	HRESULT result = D3D12CreateDevice(hardware_adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&input->m_device));
 	    	if (FAILED(result)) {
@@ -192,51 +138,49 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
 
 	// Describe and create the swap chain
 	{
-		DXGI_SWAP_CHAIN_DESC swap_chain_desc = {};
+		DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
 	    swap_chain_desc.BufferCount = input->frame_count;
-	    swap_chain_desc.BufferDesc.Width = input->sample.m_width;
-	    swap_chain_desc.BufferDesc.Height = input->sample.m_height;
-	    swap_chain_desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	    swap_chain_desc.Width = input->sample.m_width;
+	    swap_chain_desc.Height = input->sample.m_height;
+	    swap_chain_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	    swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	    swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	    swap_chain_desc.OutputWindow = window_handle;
 	    swap_chain_desc.SampleDesc.Count = 1;
-	    swap_chain_desc.Windowed = TRUE;
     
-    	ComPtr<IDXGISwapChain> swap_chain;
-
-	    HRESULT result = factory->CreateSwapChain(
-	        input->m_command_queue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+    	ComPtr<IDXGISwapChain1> swap_chain;
+	    HRESULT result = factory->CreateSwapChainForHwnd(
+	        input->m_command_queue.Get(), // Swap chain needs the queue so that it can force a flush on it.
+            window_handle,
 	        &swap_chain_desc,
+            nullptr,
+            nullptr,
 	        &swap_chain);
 	    if (FAILED(result)) {
 	    	output("load_pipeline(): CreateSwapChain() failed");
 	    }
 
-   		result = swap_chain.As(&input->m_swap_chain);
-   		if (FAILED(result)) {
-   			output("load_pipeline(): swap_chain.As() failed");
-   		}
-   	}
-
-   	// This sample does not support fullscreen transitions
-   	{
-   		HRESULT result = factory->MakeWindowAssociation(window_handle, DXGI_MWA_NO_ALT_ENTER);
+        // This sample does not support fullscreen transitions
+   		result = factory->MakeWindowAssociation(window_handle, DXGI_MWA_NO_ALT_ENTER);
    		if (FAILED(result)) {
    			output("load_pipeline(): MakeWindowAssociation() failed");
    		}
-   	}
 
-   	input->m_frame_index = input->m_swap_chain->GetCurrentBackBufferIndex();
+        result = swap_chain.As(&input->m_swap_chain);
+        if (FAILED(result)) {
+            output("load_pipeline(): swap_chain.As() failed");
+        }
+
+        input->m_frame_index = input->m_swap_chain->GetCurrentBackBufferIndex();
+   	}
 
    	// Create descriptor heaps
    	{
    		// Describe and create a render target view (RTV) descriptor heap.
-        D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-        rtvHeapDesc.NumDescriptors = input->frame_count;
-        rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        HRESULT result = input->m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&input->m_rtv_heap));
+        D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+        rtv_heap_desc.NumDescriptors = input->frame_count;
+        rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        rtv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        HRESULT result = input->m_device->CreateDescriptorHeap(&rtv_heap_desc, IID_PPV_ARGS(&input->m_rtv_heap));
         if (FAILED(result)) {
         	output("load_pipeline(): CreateDescriptorHeap() failed");
         }
@@ -256,38 +200,49 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
             }
             input->m_device->CreateRenderTargetView(input->m_render_targets[n].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(1, input->m_rtv_descriptor_size);
+
+            result = input->m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&input->m_command_allocators[n]));
+            if (FAILED(result)) {
+                output("load_pipeline(): CreateCommandAllocator() failed");
+            }
         }
-   	}
-
-   	{
-   		HRESULT result = input->m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&input->m_command_allocator));
-   		if (FAILED(result)) {
-   			output("load_pipeline(): CreateCommandAllocator() failed");
-   		}
-
    	}
 }
 
-void dx_wait_for_previous_frame(dx_hello_triangle *input) {
-	// WAITING FOR THE FRAME TO COMPLETE BEFORE CONTINUING IS NOT BEST PRACTICE.
-    // This is code implemented as such for simplicity. The D3D12HelloFrameBuffering
-    // sample illustrates how to use fences for efficient resource usage and to
-    // maximize GPU utilization.
+// Wait for pending GPU work to complete.
+void dx12_wait_for_gpu(dx_hello_triangle *input) {
+    // Schedule a Signal command in the queue.
+    HRESULT result = input->m_command_queue->Signal(input->m_fence.Get(), input->m_fence_values[input->m_frame_index]);
+    if (FAILED(result)) output("dx12_wait_for_gpu(): Signal() failed");
 
-    // Signal and increment the fence value.
-    const UINT64 fence = input->m_fence_value;
-    HRESULT result = input->m_command_queue->Signal(input->m_fence.Get(), fence);
-    if (FAILED(result)) output("dx_wait_for_previous_frame(): Signal() failed");
-    input->m_fence_value++;
+    // Wait until the fence has been processed.
+    result = input->m_fence->SetEventOnCompletion(input->m_fence_values[input->m_frame_index], input->m_fence_event);
+    if (FAILED(result)) output("dx12_wait_for_gpu(): SetEventOnCompletion() failed");
+    WaitForSingleObjectEx(input->m_fence_event, INFINITE, FALSE);
 
-    // Wait until the previous frame is finished.
-    if (input->m_fence->GetCompletedValue() < fence) {
-        HRESULT result = input->m_fence->SetEventOnCompletion(fence, input->m_fence_event);
-        if (FAILED(result)) output("dx_wait_for_previous_frame(): SetEventOnCompletion() failed");
-        WaitForSingleObject(input->m_fence_event, INFINITE);
+    // Increment the fence value for the current frame.
+    input->m_fence_values[input->m_frame_index]++;
+}
+
+void dx12_move_to_next_frame(dx_hello_triangle *input) {
+    // Schedule a Signal command in the queue.
+    const UINT64 current_fence_value = input->m_fence_values[input->m_frame_index];
+    HRESULT result = input->m_command_queue->Signal(input->m_fence.Get(), current_fence_value);
+    if (FAILED(result)) output("dx12_move_to_next_frame(): Signal() failed");
+
+    // Update the frame index.
+    input->m_frame_index = input->m_swap_chain->GetCurrentBackBufferIndex();
+
+    // If the next frame is not ready to be rendered yet, wait until it is ready.
+    if (input->m_fence->GetCompletedValue() < input->m_fence_values[input->m_frame_index])
+    {
+        HRESULT result = input->m_fence->SetEventOnCompletion(input->m_fence_values[input->m_frame_index], input->m_fence_event);
+        if (FAILED(result)) output("dx12_move_to_next_frame(): SetEventOnCompletion() failed");
+        WaitForSingleObjectEx(input->m_fence_event, INFINITE, FALSE);
     }
 
-    input->m_frame_index = input->m_swap_chain->GetCurrentBackBufferIndex();
+    // Set the fence value for the next frame.
+    input->m_fence_values[input->m_frame_index] = current_fence_value + 1;
 }
 
 void dx_load_assets(dx_hello_triangle *input) {
@@ -352,7 +307,7 @@ void dx_load_assets(dx_hello_triangle *input) {
 
     // Create the command list.
     {
-    	HRESULT result = input->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, input->m_command_allocator.Get(), input->m_pipeline_state.Get(), IID_PPV_ARGS(&input->m_command_list));
+    	HRESULT result = input->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, input->m_command_allocators[input->m_frame_index].Get(), input->m_pipeline_state.Get(), IID_PPV_ARGS(&input->m_command_list));
     	if (FAILED(result)) output("load_assets(): CreateCommandList() failed");
 	}
 
@@ -379,12 +334,10 @@ void dx_load_assets(dx_hello_triangle *input) {
         // recommended. Every time the GPU needs it, the upload heap will be marshalled 
         // over. Please read up on Default Heap usage. An upload heap is used here for 
         // code simplicity and because there are very few verts to actually transfer.
-        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
-        auto desc = CD3DX12_RESOURCE_DESC::Buffer(vertex_buffer_size);
         HRESULT result = input->m_device->CreateCommittedResource(
-            &heapProps,
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
-            &desc,
+            &CD3DX12_RESOURCE_DESC::Buffer(vertex_buffer_size),
             D3D12_RESOURCE_STATE_GENERIC_READ,
             nullptr,
             IID_PPV_ARGS(&input->m_vertex_buffer));
@@ -406,9 +359,9 @@ void dx_load_assets(dx_hello_triangle *input) {
 
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
-        HRESULT result = input->m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&input->m_fence));
+        HRESULT result = input->m_device->CreateFence(input->m_fence_values[input->m_frame_index], D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&input->m_fence));
         if (FAILED(result)) output("load_assets(): CreateFence() failed");
-        input->m_fence_value = 1;
+        input->m_fence_values[input->m_frame_index]++;
 
         // Create an event handle to use for frame synchronization.
         input->m_fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
@@ -420,7 +373,7 @@ void dx_load_assets(dx_hello_triangle *input) {
         // Wait for the command list to execute; we are reusing the same command 
         // list in our main loop but for now, we just want to wait for setup to 
         // complete before continuing.
-        dx_wait_for_previous_frame(input);
+        dx12_wait_for_gpu(input);
     }
 }
 
@@ -428,12 +381,14 @@ void dx_populate_command_list(dx_hello_triangle *input) {
 	// Command list allocators can only be reset when the associated 
     // command lists have finished execution on the GPU; apps should use 
     // fences to determine GPU execution progress.
-    HRESULT result = input->m_command_allocator->Reset();
+    HRESULT result = input->m_command_allocators[input->m_frame_index]->Reset();
+    if (FAILED(result)) output("dx_populate_command_list(): command allocator Reset() failed");
 
     // However, when ExecuteCommandList() is called on a particular command 
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
-    result = input->m_command_list->Reset(input->m_command_allocator.Get(), input->m_pipeline_state.Get());
+    result = input->m_command_list->Reset(input->m_command_allocators[input->m_frame_index].Get(), input->m_pipeline_state.Get());
+    if (FAILED(result)) output("dx_populate_command_list(): command list Reset() failed");
 
     // Set necessary state.
     input->m_command_list->SetGraphicsRootSignature(input->m_root_signature.Get());
@@ -459,6 +414,7 @@ void dx_populate_command_list(dx_hello_triangle *input) {
     input->m_command_list->ResourceBarrier(1, &barrier);
 
     result = input->m_command_list->Close();
+    if (FAILED(result)) output("dx_populate_command_list(): Close() failed");
 }
 
 void dx_on_render(dx_hello_triangle *input) {
@@ -473,50 +429,111 @@ void dx_on_render(dx_hello_triangle *input) {
     HRESULT result = input->m_swap_chain->Present(1, 0);
     if (FAILED(result)) output("dx_on_render(): Present() failed");
 
-    dx_wait_for_previous_frame(input);
+    dx12_move_to_next_frame(input);
 }
 
 void dx_on_destroy(dx_hello_triangle *input) {
-	// Wait for the GPU to be done with all resources.
-    dx_wait_for_previous_frame(input);
+	// Ensure that the GPU is no longer referencing resources that are about to be
+    // cleaned up by the destructor.
+    dx12_wait_for_gpu(input);
 
     CloseHandle(input->m_fence_event);
 }
 
-dx_hello_triangle global_triangle = {};
+//
+// https://learn.microsoft.com/en-us/windows/win32/seccrypto/retrieving-error-messages
+//
+internal void
+win32_print_error(DWORD err) {
+    WCHAR buffer[512];  
+    DWORD chars; 
 
-LRESULT CALLBACK main_window_callback(HWND window_handle, UINT message, WPARAM wparam, LPARAM lparam) {
-	LRESULT result = 0;
+    chars = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, err, 0, buffer, 512, NULL);
 
-	switch(message) {
-		case WM_SIZE: OutputDebugStringA("WM_SIZE\n"); break;
-
-		case WM_CREATE: {
-
-		} break;
-
-		case WM_PAINT: {
-			if (global_triangle.initialized)
-				dx_on_render(&global_triangle);
-		} break;
-
-		case WM_DESTROY: {
-			PostQuitMessage(0);
-			result = 0;
-		} break;
-
-		default: {
-			result = DefWindowProc(window_handle, message, wparam, lparam);
-		} break;
-	}
-
-	return result;
+    // Display the error message, or generic text if not found.
+    printf("Error value: %d Message: %ws\n", err, chars ? buffer : L"Error message not found." );
 }
 
-struct platform_window_dimension {
-	s32 width;
-	s32 height;
-};
+// query performance counter has a high resolution so it can be used to get the micro seconds between frames.
+// SDL_GetTicks only returns the microseconds.
+inline s64
+win32_get_ticks() {
+    LARGE_INTEGER result;
+    if (!QueryPerformanceCounter(&result)) {
+        win32_print_error(GetLastError());
+    }
+    return result.QuadPart;
+}
+
+// used to init global_perf_count_frequency
+inline s64
+win32_performance_frequency() {
+    LARGE_INTEGER result;
+    if (!QueryPerformanceFrequency(&result)) {
+        win32_print_error(GetLastError());
+    }
+    return result.QuadPart;
+}
+
+inline r64
+win32_get_seconds_elapsed(s64 start, s64 end) {
+    r64 result = ((r64)(end - start) / (r64)global_perf_count_frequency);
+    return result;
+}
+
+internal void
+win32_process_pending_messages() {
+    MSG message;
+    while(PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
+        switch(message.message) {
+            case WM_QUIT: {
+                win32_global_running = false;
+            } break;
+
+            default: {
+                TranslateMessage(&message);
+                DispatchMessageA(&message);
+            } break;
+        }
+    }
+}
+
+LRESULT CALLBACK main_window_callback(HWND window_handle, UINT message, WPARAM wparam, LPARAM lparam) {
+    LRESULT result = 0;
+
+    switch(message) {
+        case WM_SIZE: {
+            OutputDebugStringA("WM_SIZE\n"); 
+        } break;
+
+        case WM_ACTIVATEAPP: {
+            output("WM_ACTIVATEAPP");
+        } break;
+
+        case WM_DESTROY: {
+            //PostQuitMessage(0);
+            //result = 0;
+
+            win32_global_running = false;
+        } break;
+
+        case WM_PAINT:
+        case WM_ERASEBKGND:
+        default: {
+            result = DefWindowProc(window_handle, message, wparam, lparam);
+        } break;
+    }
+
+    return result;
+}
+
+void init_hello_triangle(dx_hello_triangle *triangle, UINT width, UINT height) {
+    init_dx_sample(&triangle->sample, width, height);
+    triangle->m_frame_index = 0;
+    triangle->m_rtv_descriptor_size = 0;
+    triangle->m_viewport = CD3DX12_VIEWPORT(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
+    triangle->m_scissor_rect = CD3DX12_RECT(0, 0, static_cast<LONG>(width), static_cast<LONG>(height));
+}
 
 int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
 	WNDCLASS window_class = {};
@@ -552,16 +569,23 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			dx_load_assets(&global_triangle);
 			global_triangle.initialized = true;
 
-			while(1) {
-				MSG message;
-				BOOL message_result = GetMessageA(&message, 0, 0, 0);
-				if (message_result > 0) {
-					TranslateMessage(&message);
-					DispatchMessageA(&message);
-				} else {
-					break;
-				}
+            global_perf_count_frequency = win32_performance_frequency();
+            s64 last_frame_time = win32_get_ticks();
+
+			while(win32_global_running) {
+                win32_process_pending_messages();
+
+                if (global_triangle.initialized)
+                    dx_on_render(&global_triangle);
+
+                s64 this_frame_time = win32_get_ticks();
+                r64 fps = win32_get_seconds_elapsed(last_frame_time, this_frame_time);
+                last_frame_time = this_frame_time;
+
+                output("%f", 1.0f/fps);
 			}
+
+            dx_on_destroy(&global_triangle);
 		} else {
 			output("WinMain(): CreateWindowExA() failed");
 		}
