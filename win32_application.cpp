@@ -6,22 +6,19 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <D3Dcompiler.h>
-#include <DirectXMath.h>
 #include "d3dx12.h" // Helper Structures and Functions
 
 #include <string>
 #include <wrl.h>
-using namespace Microsoft::WRL;
+using Microsoft::WRL::ComPtr;
 #include <shellapi.h>
 
 #endif // WINDOWS
 
 #include "log.h"
 #include "types.h"
-//#include "assets.h"
 
 #include "log.cpp"
-//#include "assets.cpp"
 
 struct dx_sample {
 	// viewport dimensions
@@ -47,14 +44,12 @@ void dx_get_hardware_adapter(IDXGIFactory1* p_factory, IDXGIAdapter1** pp_adapte
 
     ComPtr<IDXGIFactory6> factory6;
     if (SUCCEEDED(p_factory->QueryInterface(IID_PPV_ARGS(&factory6)))) {
-        for (
-            UINT adapter_index = 0;
-            SUCCEEDED(factory6->EnumAdapterByGpuPreference(
+        for (UINT adapter_index = 0;
+             SUCCEEDED(factory6->EnumAdapterByGpuPreference(
                 adapter_index,
                 request_high_performance_adapter == true ? DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE : DXGI_GPU_PREFERENCE_UNSPECIFIED,
                 IID_PPV_ARGS(&adapter)));
-            ++adapter_index)
-        {
+             ++adapter_index) {
             DXGI_ADAPTER_DESC1 desc;
             adapter->GetDesc1(&desc);
 
@@ -158,7 +153,7 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
     {
 	    HRESULT result = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory));
 	    if (FAILED(result)) {
-	    	log("load_pipeline(): CreateDXGIFactory1() failed");
+	    	output("load_pipeline(): CreateDXGIFactory1() failed");
 	    }
     }	
 
@@ -167,12 +162,12 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
 	    if (input->sample.m_useWarpDevice) {
 	    	ComPtr<IDXGIAdapter> warp_adapter;
 	    	if (FAILED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp_adapter)))) {
-	    		log("load_pipeline(): EnumWarpAdapter() failed");
+	    		output("load_pipeline(): EnumWarpAdapter() failed");
 	    	}
 
 	    	HRESULT result = D3D12CreateDevice(warp_adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&input->m_device));
 	    	if (FAILED(result)) {
-	    		log("load_pipeline(): D3D12CreateDevice() warp adapter failed");
+	    		output("load_pipeline(): D3D12CreateDevice() warp adapter failed");
 	    	}
 
 	    } else {
@@ -181,7 +176,7 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
 
 	    	HRESULT result = D3D12CreateDevice(hardware_adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&input->m_device));
 	    	if (FAILED(result)) {
-	    		log("load_pipeline(): D3D12CreateDevice() hardware adapter failed");
+	    		output("load_pipeline(): D3D12CreateDevice() hardware adapter failed");
 	    	}
 	    }
 	}
@@ -215,12 +210,12 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
 	        &swap_chain_desc,
 	        &swap_chain);
 	    if (FAILED(result)) {
-	    	log("load_pipeline(): CreateSwapChain() failed");
+	    	output("load_pipeline(): CreateSwapChain() failed");
 	    }
 
    		result = swap_chain.As(&input->m_swap_chain);
    		if (FAILED(result)) {
-   			log("load_pipeline(): swap_chain.As() failed");
+   			output("load_pipeline(): swap_chain.As() failed");
    		}
    	}
 
@@ -228,7 +223,7 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
    	{
    		HRESULT result = factory->MakeWindowAssociation(window_handle, DXGI_MWA_NO_ALT_ENTER);
    		if (FAILED(result)) {
-   			log("load_pipeline(): MakeWindowAssociation() failed");
+   			output("load_pipeline(): MakeWindowAssociation() failed");
    		}
    	}
 
@@ -243,7 +238,7 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         HRESULT result = input->m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&input->m_rtv_heap));
         if (FAILED(result)) {
-        	log("load_pipeline(): CreateDescriptorHeap() failed");
+        	output("load_pipeline(): CreateDescriptorHeap() failed");
         }
 
         input->m_rtv_descriptor_size = input->m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -257,7 +252,7 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
         for (UINT n = 0; n < input->frame_count; n++) {
             HRESULT result = input->m_swap_chain->GetBuffer(n, IID_PPV_ARGS(&input->m_render_targets[n]));
             if (FAILED(result)) {
-            	log("load_pipeline(): GetBuffer() failed");
+            	output("load_pipeline(): GetBuffer() failed");
             }
             input->m_device->CreateRenderTargetView(input->m_render_targets[n].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(1, input->m_rtv_descriptor_size);
@@ -267,7 +262,7 @@ void dx_load_pipeline(dx_hello_triangle *input, HWND window_handle) {
    	{
    		HRESULT result = input->m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&input->m_command_allocator));
    		if (FAILED(result)) {
-   			log("load_pipeline(): CreateCommandAllocator() failed");
+   			output("load_pipeline(): CreateCommandAllocator() failed");
    		}
 
    	}
@@ -282,13 +277,13 @@ void dx_wait_for_previous_frame(dx_hello_triangle *input) {
     // Signal and increment the fence value.
     const UINT64 fence = input->m_fence_value;
     HRESULT result = input->m_command_queue->Signal(input->m_fence.Get(), fence);
-    if (FAILED(result)) log("dx_wait_for_previous_frame(): Signal() failed");
+    if (FAILED(result)) output("dx_wait_for_previous_frame(): Signal() failed");
     input->m_fence_value++;
 
     // Wait until the previous frame is finished.
     if (input->m_fence->GetCompletedValue() < fence) {
         HRESULT result = input->m_fence->SetEventOnCompletion(fence, input->m_fence_event);
-        if (FAILED(result)) log("dx_wait_for_previous_frame(): SetEventOnCompletion() failed");
+        if (FAILED(result)) output("dx_wait_for_previous_frame(): SetEventOnCompletion() failed");
         WaitForSingleObject(input->m_fence_event, INFINITE);
     }
 
@@ -304,9 +299,9 @@ void dx_load_assets(dx_hello_triangle *input) {
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
         HRESULT result = D3D12SerializeRootSignature(&root_signature_desc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
-        if (FAILED(result)) log("load_assets(): D3D12SerializeRootSignature() failed");
+        if (FAILED(result)) output("load_assets(): D3D12SerializeRootSignature() failed");
         result = input->m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&input->m_root_signature));
-        if (FAILED(result)) log("load_assets(): CreateRootSignature() failed");
+        if (FAILED(result)) output("load_assets(): CreateRootSignature() failed");
     }
 
     // Create the pipeline state, which includes compiling and loading shaders.
@@ -325,9 +320,9 @@ void dx_load_assets(dx_hello_triangle *input) {
 
         HRESULT result;
         result = D3DCompileFromFile(file, nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertex_shader, nullptr);
-        if (FAILED(result)) log("load_assets(): D3DCompileFromFile() failed");
+        if (FAILED(result)) output("load_assets(): D3DCompileFromFile() failed");
         result = D3DCompileFromFile(file, nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixel_shader, nullptr);
-        if (FAILED(result)) log("load_assets(): D3DCompileFromFile() failed");
+        if (FAILED(result)) output("load_assets(): D3DCompileFromFile() failed");
 
         // Define the vertex input layout.
         D3D12_INPUT_ELEMENT_DESC input_element_descs[] =
@@ -352,20 +347,20 @@ void dx_load_assets(dx_hello_triangle *input) {
         pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         pso_desc.SampleDesc.Count = 1;
         result = input->m_device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&input->m_pipeline_state));
-        if (FAILED(result)) log("load_assets(): CreateGraphicsPipelineState() failed");
+        if (FAILED(result)) output("load_assets(): CreateGraphicsPipelineState() failed");
     }
 
     // Create the command list.
     {
     	HRESULT result = input->m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, input->m_command_allocator.Get(), input->m_pipeline_state.Get(), IID_PPV_ARGS(&input->m_command_list));
-    	if (FAILED(result)) log("load_assets(): CreateCommandList() failed");
+    	if (FAILED(result)) output("load_assets(): CreateCommandList() failed");
 	}
 
 	// Command lists are created in the recording state, but there is nothing
     // to record yet. The main loop expects it to be closed, so close it now.
     {
     	HRESULT result = input->m_command_list->Close();
-    	if (FAILED(result)) log("load_assets(): Close() failed");
+    	if (FAILED(result)) output("load_assets(): Close() failed");
     }
 
     // Create the vertex buffer.
@@ -373,8 +368,8 @@ void dx_load_assets(dx_hello_triangle *input) {
         // Define the geometry for a triangle.
         Vertex triangle_vertices[] =
         {
-            { { 0.0f, 0.25f * input->sample.m_aspect_ratio, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-            { { 0.25f, -0.25f * input->sample.m_aspect_ratio, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+            { {   0.0f,  0.25f * input->sample.m_aspect_ratio, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+            { {  0.25f, -0.25f * input->sample.m_aspect_ratio, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
             { { -0.25f, -0.25f * input->sample.m_aspect_ratio, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
         };
 
@@ -393,13 +388,13 @@ void dx_load_assets(dx_hello_triangle *input) {
             D3D12_RESOURCE_STATE_GENERIC_READ,
             nullptr,
             IID_PPV_ARGS(&input->m_vertex_buffer));
-        if (FAILED(result)) log("load_assets(): CreateCommittedResource() failed");
+        if (FAILED(result)) output("load_assets(): CreateCommittedResource() failed");
 
         // Copy the triangle data to the vertex buffer.
         UINT8* p_vertex_data_begin;
         CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
         result = input->m_vertex_buffer->Map(0, &readRange, reinterpret_cast<void**>(&p_vertex_data_begin));
-        if (FAILED(result)) log("load_assets(): Map() failed");
+        if (FAILED(result)) output("load_assets(): Map() failed");
         memcpy(p_vertex_data_begin, triangle_vertices, sizeof(triangle_vertices));
         input->m_vertex_buffer->Unmap(0, nullptr);
 
@@ -412,14 +407,14 @@ void dx_load_assets(dx_hello_triangle *input) {
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
         HRESULT result = input->m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&input->m_fence));
-        if (FAILED(result)) log("load_assets(): CreateFence() failed");
+        if (FAILED(result)) output("load_assets(): CreateFence() failed");
         input->m_fence_value = 1;
 
         // Create an event handle to use for frame synchronization.
         input->m_fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
         if (input->m_fence_event == nullptr) {
             HRESULT result = (HRESULT_FROM_WIN32(GetLastError()));
-            if (FAILED(result)) log("load_assets(): GetLastError() failed");
+            if (FAILED(result)) output("load_assets(): GetLastError() failed");
         }
 
         // Wait for the command list to execute; we are reusing the same command 
@@ -476,7 +471,7 @@ void dx_on_render(dx_hello_triangle *input) {
 
     // Present the frame.
     HRESULT result = input->m_swap_chain->Present(1, 0);
-    if (FAILED(result)) log("dx_on_render(): Present() failed");
+    if (FAILED(result)) output("dx_on_render(): Present() failed");
 
     dx_wait_for_previous_frame(input);
 }
@@ -537,8 +532,8 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			WS_OVERLAPPEDWINDOW | WS_VISIBLE,
 			CW_USEDEFAULT,
             CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            800,
+            800,
             0,
             0,
             hInstance,
@@ -549,7 +544,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			platform_window_dimension dim;
 			RECT client_rect;
     		GetClientRect(window_handle, &client_rect);
-    		dim.width = client_rect.right - client_rect.left;
+			dim.width = client_rect.right - client_rect.left;
     		dim.height = client_rect.bottom - client_rect.top;
 
 			init_hello_triangle(&global_triangle, dim.width, dim.height);
@@ -568,10 +563,10 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				}
 			}
 		} else {
-			log("WinMain(): CreateWindowExA() failed");
+			output("WinMain(): CreateWindowExA() failed");
 		}
 	} else {
-		log("WinMain(): RegisterClassA() failed");
+		output("WinMain(): RegisterClassA() failed");
 	}
 
 	return 0;

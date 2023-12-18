@@ -3,7 +3,7 @@
 
 // stupid log just to have my own functions
 
-void log(const char* msg, ...);
+void output(const char* msg, ...);
 void error(int line_num, const char* msg, ...);
 void error(const char* msg, ...);
 void warning(int line_num, const char* msg, ...);

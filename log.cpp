@@ -1,6 +1,15 @@
+enum
+{
+    OUTPUT_DEFAULT,
+    OUTPUT_ERROR,
+    OUTPUT_WARNING,
+};
+
+static u32 output_type;
+
 #ifdef WINDOWS
 
-void output_string(const char *string) {
+void output_string(u32 output_type, const char *string) {
     static char *output_buffer = 0;
     if (output_buffer == 0) {
         output_buffer = (char*)malloc(100);
@@ -19,7 +28,7 @@ void output_string(const char *string) {
     OutputDebugStringA((LPCSTR)output_buffer);
 }
 
-void output_ch(const char ch) {
+void output_ch(u32 output_type, const char ch) {
     static char *output_buffer = 0;
     if (output_buffer == 0) {
         output_buffer = (char*)malloc(2);
@@ -29,7 +38,7 @@ void output_ch(const char ch) {
     OutputDebugStringA((LPCSTR)output_buffer);
 }
 
-void output_list(const char *msg, va_list valist) {
+void output_list(u32 output_type, const char *msg, va_list valist) {
     const char *msg_ptr = msg;
     while (*msg_ptr != 0) {
         if (*msg_ptr == '%') {
@@ -37,34 +46,14 @@ void output_list(const char *msg, va_list valist) {
             switch(*msg_ptr) {
                 case 's': {
                     const char *string = va_arg(valist, const char*);
-                    output_string(string);
+                    output_string(output_type, string);
                 } break;
             }
         } else {
-            output_ch(*msg_ptr);
+            output_ch(output_type, *msg_ptr);
         }
         msg_ptr++;
     }
-}
-
-void log(const char* msg, ...)
-{
-    va_list valist;
-    va_start(valist, msg);
-    output_list(msg, valist);
-    output_ch('\n');
-}
-
-void error(int line_num, const char* msg, ...)
-{
-    output_string("error: ");
-    
-    va_list valist;
-    va_start(valist, msg);
-    output_list(msg, valist);
-    
-    //if (line_num != 0) fprintf(stderr, " @ or near line %d ", line_num);
-    output_ch('\n');
 }
 
 #endif // WINDOWS
@@ -77,18 +66,13 @@ void output(FILE *stream, const char* msg, va_list valist)
     while (*msg_ptr != 0) {
         if (*msg_ptr == '%') {
             msg_ptr++;
-            if (*msg_ptr == 's')
-            {
+            if (*msg_ptr == 's') {
                 const char *string = va_arg(valist, const char*);
                 fprintf(stream, "%s", string);
-            }
-            else if (*msg_ptr == 'd')
-            {
+            } else if (*msg_ptr == 'd') {
                 int integer = va_arg(valist, int);
                 fprintf(stream, "%d", integer);
-            }
-            else if (*msg_ptr == 'f')
-            {
+            } else if (*msg_ptr == 'f') {
                 double f = va_arg(valist, double);
                 fprintf(stream, "%f", f);
             }
@@ -99,57 +83,39 @@ void output(FILE *stream, const char* msg, va_list valist)
     }
 }
 
-void log(const char* msg, ...)
-{
-    va_list valist;
-    va_start(valist, msg);
-    output(stdout, msg, valist);
-    fputc('\n', stdout);
+#endif // SDL
+
+void output(const char *msg, ...) {
+    u32 output_type = OUTPUT_DEFAULT;
+    va_list list;
+
+    va_start(list, msg);
+    output_list(output_type, msg, list);
+    va_end(list);
+
+    output_ch(output_type, '\n');
 }
 
 void error(int line_num, const char* msg, ...)
 {
-    output(stderr, "error: ", 0);
+    u32 output_type = OUTPUT_ERROR;
+
+    output_string(output_type, "error: ");
     
     va_list valist;
     va_start(valist, msg);
-    output(stderr, msg, valist);
+    output_list(output_type, msg, valist);
     
     if (line_num != 0) fprintf(stderr, " @ or near line %d ", line_num);
-    fputc('\n', stderr);
+    output_ch(output_type, '\n');
 }
-
-void error(const char* msg, ...) 
-{ 
-    fprintf(stderr, "error: ");
-    va_list valist;
-    va_start(valist, msg);
-    output(stderr, msg, valist);
-    fputc('\n', stderr);
-}
-
-void warning(int line_num, const char* msg, ...)
-{
-    fprintf(stderr, "warning: ");
-    
-    va_list valist;
-    va_start(valist, msg);
-    output(stderr, msg, valist);
-    
-    if (line_num != 0) fprintf(stderr, "@ or near line %d ", line_num);
-    fputc('\n', stderr);
-}
-
-#endif // SDL
 
 #ifdef OPENGL
 
-void GLAPIENTRY opengl_debug_message_callback(
-    GLenum source, GLenum type, GLuint id,  GLenum severity, GLsizei length, 
-    const GLchar* message, const void* userParam )
+void GLAPIENTRY opengl_debug_message_callback(GLenum source, GLenum type, GLuint id,  GLenum severity, GLsizei length, const GLchar* message, const void* userParam)
 {
-    SDL_Log("GL CALLBACK:");
-    SDL_Log("message: %s\n", message);
+    log("GL CALLBACK:");
+    log("message: %s\n", message);
     switch (type)
     {
         case GL_DEBUG_TYPE_ERROR:               log("type: ERROR");               break;
